@@ -1,7 +1,7 @@
 {
   "abi_version": "1.0.0",
   "tool": "jcs-canon",
-  "description": "Machine-readable ABI contract for jcs-canon CLI (jcs-schubfach variant)",
+  "description": "Machine-readable ABI contract for jcs-canon CLI",
   "commands": {
     "canonicalize": {
       "stable": true,
@@ -64,6 +64,6 @@
   "compatibility": {
     "policy": "Strict SemVer. Any change to items marked 'stable: true' requires major version bump.",
     "stderr_wording": "Non-stable. Diagnostic message text may change in minor/patch releases. Failure class names in stderr are stable.",
-    "exit_code_mapping": "Stable. Failure class to exit code mapping is frozen."
+    "exit_code_mapping": "Stable. Failure class → exit code mapping is frozen."
   }
 }

@@ -71,7 +71,7 @@ jobs:
           set -euo pipefail
           mkdir -p .tmp/release-offline-control
           source_tree=".tmp/release-offline-source"
-          control_binary="${GITHUB_WORKSPACE}/.tmp/release-offline-control/jcs-schubfach"
+          control_binary="${GITHUB_WORKSPACE}/.tmp/release-offline-control/jcs-canon"
           rm -rf "${source_tree}"
 
           cleanup() {
@@ -84,13 +84,13 @@ jobs:
             cd "${source_tree}"
             CGO_ENABLED=0 go build -trimpath -buildvcs=false \
               -ldflags="-s -w -buildid= -X main.version=${GITHUB_REF_NAME}" \
-              -o "${control_binary}" ./cmd/jcs-schubfach
+              -o "${control_binary}" ./cmd/jcs-canon
           )
       - name: offline evidence gate x86_64
         env:
           JCS_OFFLINE_EVIDENCE: ${{ github.workspace }}/offline/runs/releases/${{ github.ref_name }}/x86_64/offline-evidence.json
           JCS_OFFLINE_BUNDLE: ${{ github.workspace }}/offline/runs/releases/${{ github.ref_name }}/x86_64/offline-bundle.tgz
-          JCS_OFFLINE_CONTROL_BINARY: ${{ github.workspace }}/.tmp/release-offline-control/jcs-schubfach
+          JCS_OFFLINE_CONTROL_BINARY: ${{ github.workspace }}/.tmp/release-offline-control/jcs-canon
           JCS_OFFLINE_MATRIX: ${{ github.workspace }}/offline/matrix.yaml
           JCS_OFFLINE_PROFILE: ${{ github.workspace }}/offline/profiles/maximal.yaml
           JCS_OFFLINE_EXPECTED_GIT_COMMIT: ${{ steps.evidence-source.outputs.commit }}
@@ -100,7 +100,7 @@ jobs:
         env:
           JCS_OFFLINE_EVIDENCE: ${{ github.workspace }}/offline/runs/releases/${{ github.ref_name }}/arm64/offline-evidence.json
           JCS_OFFLINE_BUNDLE: ${{ github.workspace }}/offline/runs/releases/${{ github.ref_name }}/arm64/offline-bundle.tgz
-          JCS_OFFLINE_CONTROL_BINARY: ${{ github.workspace }}/.tmp/release-offline-control/jcs-schubfach
+          JCS_OFFLINE_CONTROL_BINARY: ${{ github.workspace }}/.tmp/release-offline-control/jcs-canon
           JCS_OFFLINE_MATRIX: ${{ github.workspace }}/offline/matrix.arm64.yaml
           JCS_OFFLINE_PROFILE: ${{ github.workspace }}/offline/profiles/maximal.arm64.yaml
           JCS_OFFLINE_EXPECTED_GIT_COMMIT: ${{ steps.evidence-source.outputs.commit }}
@@ -136,13 +136,13 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist
-          bin="jcs-schubfach"
-          CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags="-s -w -buildid= -X main.version=${GITHUB_REF_NAME}" -o "dist/${bin}" ./cmd/jcs-schubfach
+          bin="jcs-canon"
+          CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags="-s -w -buildid= -X main.version=${GITHUB_REF_NAME}" -o "dist/${bin}" ./cmd/jcs-canon
           cp LICENSE dist/
           cp NOTICE dist/
           cp README.md dist/
           cp CHANGELOG.md dist/
-          bundle="jcs-schubfach-linux-x86_64.tar.gz"
+          bundle="jcs-canon-linux-x86_64.tar.gz"
           bundle_root="${bundle%.tar.gz}"
           bundle_dir=".tmp/release-bundle/${bundle_root}"
           mkdir -p "${bundle_dir}"
@@ -152,7 +152,7 @@ jobs:
             -C .tmp/release-bundle -czf "dist/${bundle}" "${bundle_root}"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: jcs-schubfach-linux
+          name: jcs-canon-linux
           path: dist/*
 
   checksums:
@@ -167,7 +167,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          find dist -type f \( -name 'jcs-schubfach' -o -name 'jcs-schubfach-linux-*.tar.gz' \) -print0 | sort -z | xargs -0 sha256sum > dist/SHA256SUMS
+          find dist -type f \( -name 'jcs-canon' -o -name 'jcs-canon-linux-*.tar.gz' \) -print0 | sort -z | xargs -0 sha256sum > dist/SHA256SUMS
           cat dist/SHA256SUMS
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -180,7 +180,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        artifact: [jcs-schubfach-linux]
+        artifact: [jcs-canon-linux]
     steps:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
@@ -189,7 +189,7 @@ jobs:
       - name: Attest binary
         uses: actions/attest-build-provenance@96b4a1ef7235a096b17240c259729fdd70c83d45 # v2
         with:
-          subject-path: dist/jcs-schubfach*
+          subject-path: dist/jcs-canon*
 
   publish:
     name: Publish GitHub Release

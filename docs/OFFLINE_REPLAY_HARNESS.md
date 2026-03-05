@@ -1,7 +1,7 @@
 # Offline Replay Harness
 
 This document is the operator runbook for proving deterministic behavior of
-`jcs-schubfach` in offline Linux labs across distro and kernel lanes, including
+`json-canon` in offline Linux labs across distro and kernel lanes, including
 cross-architecture comparison.
 
 ## 1. What This Proves

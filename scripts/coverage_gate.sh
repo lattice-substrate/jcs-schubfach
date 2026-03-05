@@ -2,10 +2,10 @@
 set -euo pipefail
 
 threshold=70.0
-coverprofile="${1:-/tmp/jcs-schubfach.cover.out}"
+coverprofile="${1:-/tmp/json-canon.cover.out}"
 
-go test ./... -covermode=count -coverprofile="$coverprofile" -count=1 >/tmp/jcs-schubfach.cover.log
-cat /tmp/jcs-schubfach.cover.log
+go test ./... -covermode=count -coverprofile="$coverprofile" -count=1 >/tmp/json-canon.cover.log
+cat /tmp/json-canon.cover.log
 
 awk -F'[: ]' -v threshold="$threshold" '
 BEGIN {

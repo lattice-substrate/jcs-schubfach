@@ -1,29 +1,18 @@
 # Architecture
 
-`jcs-schubfach` is split into small packages with one-way dependencies.
+`json-canon` is split into small packages with one-way dependencies.
 
 | Layer | Package | Responsibility | Must Not Depend On |
 |------|---------|----------------|--------------------|
 | L5 | `cmd/jcs-canon` | CLI argument handling, input selection, process exits | parsing internals other than exported APIs |
 | L4 | `jcs` | Canonical serialization (`Value` -> canonical bytes) | CLI-specific code, OS-level side effects |
 | L3 | `jcstoken` | Strict parser/tokenizer and profile checks (`bytes` -> `Value`) | CLI concerns, networking, subprocesses |
-| L2 | `jcsfloat` | ECMA-262-compatible binary64 to string formatting (Schubfach algorithm) | CLI/runtime dependencies |
+| L2 | `jcsfloat` | ECMA-262-compatible binary64 to string formatting | CLI/runtime dependencies |
 | L1 | `jcserr` | Stable error classes and exit code mapping | higher-level logic |
 
 Dependency direction is inward only (L5 -> L1). Higher-level concerns cannot
 contaminate lower-level guarantees, and each layer's correctness is provable
 in isolation.
-
-## Algorithm Difference from json-canon
-
-This project is architecturally identical to [json-canon](https://github.com/lattice-substrate/json-canon)
-except at L2 (number formatting):
-
-- **json-canon**: Burger-Dybvig algorithm with `math/big.Int` multiprecision arithmetic
-- **jcs-schubfach**: Schubfach algorithm with fixed-width 128-bit integer arithmetic
-
-Both produce identical output for all finite IEEE 754 double-precision values.
-The difference is in computational approach, not in behavior.
 
 ## Execution Flows
 
@@ -60,23 +49,21 @@ Determinism is an architectural property, not a test-only property.
 1. Output is a pure function of input bytes and options.
 2. No wall-clock, RNG, locale, network, or subprocess dependence in runtime path.
 3. Object member order is derived from UTF-16 code-unit sorting only.
-4. Numeric emission follows the Schubfach algorithm using fixed-width 128-bit
-   integer arithmetic. All operations are `math/bits.Mul64`, `math/bits.Add64`,
-   and standard integer arithmetic -- none of which are susceptible to FMA fusion.
+4. Numeric emission follows ECMA-compatible algorithmic rules, not runtime-dependent formatting shortcuts.
 
 ## Number Formatting Subsystem
 
-`jcsfloat` uses the Schubfach algorithm with precomputed 128-bit powers of 10
-and fixed-width 64x128-bit multiply for interval scaling. It is validated
-against 286,000+ oracle vectors.
+`jcsfloat` uses a hand-written Burger-Dybvig algorithm with even-digit
+tie-breaking, validated against 286,000+ oracle vectors. It exists because
+`strconv.FormatFloat` output can change across Go versions. Any formatting
+drift produces different canonical bytes.
 
 Invariants:
 
 1. NaN and Infinity are rejected by profile.
 2. `-0` is normalized to `0` at formatting level; lexical negative zero is rejected by parser policy.
 3. Shortest round-tripping decimal representation is required.
-4. Branch behavior around 1e-6 and 1e21 boundaries follows ECMA-262 rules.
-5. No floating-point operations in the digit generation pipeline (FMA-immune).
+4. Branch behavior around 1e-6 and 1e21 boundaries follows ECMA rules.
 
 ## Failure Architecture
 
@@ -99,3 +86,31 @@ The stable ABI boundary includes:
 - canonical output bytes for accepted input.
 
 Breaking this boundary requires a major version and migration documentation.
+
+## Security and Runtime Surface
+
+1. Linux-only supported runtime.
+2. Static release binary (`CGO_ENABLED=0`).
+3. No outbound network calls in core runtime.
+4. No subprocess execution in core runtime.
+5. Failures classify predictably into stable classes.
+6. Canonicalization is deterministic for identical input/options.
+
+## Architecture Change Policy
+
+Changes that affect boundaries, invariants, or compatibility contracts MUST:
+
+1. update this file,
+2. update affected requirement registries and matrix,
+3. add/update ADR under `docs/adr/`,
+4. include regression tests and conformance evidence.
+
+## Architecture Review Checklist
+
+A change is architecture-safe only if all are true:
+
+1. Layering remains one-way.
+2. Determinism constraints are preserved.
+3. Failure semantics remain class-stable.
+4. ABI surface impact is explicit and versioned.
+5. Traceability links remain complete.

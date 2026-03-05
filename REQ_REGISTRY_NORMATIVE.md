@@ -1,6 +1,6 @@
 # Normative Requirement Registry
 
-Formal catalog of normative RFC/ECMA requirements implemented by `jcs-schubfach`.
+Formal catalog of normative RFC/ECMA requirements implemented by `json-canon`.
 
 ## Legend
 
@@ -131,3 +131,4 @@ Formal catalog of normative RFC/ECMA requirements implemented by `jcs-schubfach`
 |----|------|---------|-------|-------------|
 | VERIFY-ORDER-001 | RFC 8785 | §3.2.3 | MUST | Non-canonical key ordering MUST be rejected by verify. |
 | VERIFY-WS-001 | RFC 8785 | §3.2.1 | MUST | Non-canonical whitespace MUST be rejected by verify. |
+

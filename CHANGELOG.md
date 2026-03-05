@@ -9,7 +9,7 @@ This project follows strict [Semantic Versioning](https://semver.org/).
 ### Changed
 - CI Go version matrix expanded to include Go 1.25.x and 1.26.x. Go 1.26
   switched `strconv.FormatFloat` from Ryu to Dragonbox; the matrix row
-  validates that jcs-schubfach's Schubfach digit generation is independent
+  validates that json-canon's Burger-Dybvig digit generation is independent
   of standard library algorithm changes.
 
 ## [v0.3.1] - 2026-03-04
@@ -47,7 +47,7 @@ This project follows strict [Semantic Versioning](https://semver.org/).
 - Engineering articles section in README linking to the published technical article series.
 
 ### Changed
-- Schubfach digit generation uses 128-bit fixed-width arithmetic with no heap allocations per formatting call.
+- Reduced `big.Int` allocations in Burger-Dybvig digit generation (scratch values reused across iterations).
 - Added ASCII fast path in `parseString`: pure ASCII strings with no escapes parse with a single allocation instead of per-byte appends.
 - Serializer bound validation now honors caller options for `CanonicalizeWithOptions` and `SerializeWithOptions` instead of always applying parser defaults.
 - Binary hygiene policy now fails CI when compiled `jcs-*` artifacts are tracked under `offline/runs/**/bin/`.
@@ -117,7 +117,7 @@ This project follows strict [Semantic Versioning](https://semver.org/).
   - `TestOfficialRFC8785Vectors`
   - `TestOfficialES6CorpusChecksums10K`
   - release-only `TestOfficialES6CorpusChecksums100M`
-- New executable differential suite documenting Cyberphone Go invalid-input acceptance vs `jcs-schubfach` strict rejection:
+- New executable differential suite documenting Cyberphone Go invalid-input acceptance vs `json-canon` strict rejection:
   - `TestCyberphoneGoDifferentialInvalidAcceptance`
   - reference table in `docs/CYBERPHONE_DIFFERENTIAL_EXAMPLES.md`
 - New policy requirements `OFFICIAL-VEC-001..004` with matrix mappings and conformance requirement coverage.
@@ -155,7 +155,7 @@ This project follows strict [Semantic Versioning](https://semver.org/).
 
 ### Changed
 - Evidence schema `$id` URL updated from `solutionsexcite.github.io` to `lattice-substrate.github.io` to match module org migration.
-- Module identity is now aligned to the public repository path (`github.com/lattice-substrate/jcs-schubfach`) across `go.mod`, imports, CI package filters, and verification docs.
+- Module identity is now aligned to the public repository path (`github.com/lattice-substrate/json-canon`) across `go.mod`, imports, CI package filters, and verification docs.
 - Offline evidence contract now binds source identity via `source_git_commit` and `source_git_tag` in schema/model/validation.
 - Release workflow offline evidence gates now target per-tag evidence paths (`offline/runs/releases/<tag>/...`) and enforce expected commit/tag binding (`JCS_OFFLINE_EXPECTED_GIT_COMMIT`, `JCS_OFFLINE_EXPECTED_GIT_TAG`).
 - Release workflow now supports `workflow_dispatch` reruns, marks `-rc` tags as GitHub prereleases, and fails publish if artifact globs do not match (`fail_on_unmatched_files: true`).
@@ -205,7 +205,7 @@ This project follows strict [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 - CI/release lint workflow compatibility: pinned `golangci/golangci-lint-action` to `v6.5.2` SHA so enforced `golangci-lint v1.64.8` runs successfully in GitHub Actions.
-- Performance: Schubfach digit generation uses 128-bit fixed-width arithmetic with no heap allocations.
+- Performance: `lshByInt` O(n) loop replaced with single `big.Int.Lsh` call for subnormal float formatting.
 - Removed unreachable `+` prefix check in `tokenRepresentsZero`.
 - Deduplicated `isNoncharacter`; canonical definition exported as `jcstoken.IsNoncharacter`.
 - Map-iterated test tables in `jcsfloat_test.go` and `conformance/harness_test.go` converted to deterministic slices.

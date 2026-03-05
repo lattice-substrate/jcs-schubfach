@@ -1,6 +1,6 @@
 # Specification
 
-Normative behavior contract for `jcs-schubfach`. Requirement IDs in
+Normative behavior contract for `json-canon`. Requirement IDs in
 `REQ_REGISTRY_NORMATIVE.md` and `REQ_REGISTRY_POLICY.md` are the executable
 source of truth. Clause-level mappings are in `standards/CITATION_INDEX.md`.
 
@@ -45,10 +45,9 @@ In addition to RFC 8259 grammar, project policy requires:
 ### Number Serialization
 
 1. Numeric serialization MUST follow ECMA-262 `Number::toString` behavior for binary64 values.
-2. Digit generation uses the Schubfach algorithm with 128-bit fixed-width arithmetic.
-3. Exponential output MUST use lowercase `e` and explicit sign for positive exponent.
-4. Boundary branch behavior around `1e-6` and `1e21` MUST match the ECMA algorithm.
-5. Output MUST round-trip to the same IEEE 754 binary64 value.
+2. Exponential output MUST use lowercase `e` and explicit sign for positive exponent.
+3. Boundary branch behavior around `1e-6` and `1e21` MUST match the ECMA algorithm.
+4. Output MUST round-trip to the same IEEE 754 binary64 value.
 
 ### Encoding
 
@@ -136,7 +135,6 @@ When specification text is ambiguous, use this precedence:
 
 Numeric canonicalization uses ECMA-262 `Number::toString` behavior over IEEE 754
 binary64 values, with project policy constraints for lexical negative zero,
-overflow, and underflow rejection. Digit generation uses the Schubfach algorithm
-with 128-bit fixed-width arithmetic. Input validity is enforced on UTF-8 byte
+overflow, and underflow rejection. Input validity is enforced on UTF-8 byte
 streams. Key sort order is based on UTF-16 code units of raw property names. No
 Unicode normalization is applied.

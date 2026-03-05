@@ -1,13 +1,13 @@
 # Guide
 
-jcs-schubfach has two interfaces: a Go library for embedding canonicalization into your code, and a CLI for pipelines and verification scripts. This guide covers both, along with CI/CD integration and migration from other implementations.
+json-canon has two interfaces: a Go library for embedding canonicalization into your code, and a CLI for pipelines and verification scripts. This guide covers both, along with CI/CD integration and migration from other implementations.
 
 ## Quick Start
 
 ### Go Library
 
 ```bash
-go get github.com/lattice-substrate/jcs-schubfach
+go get github.com/lattice-substrate/json-canon
 ```
 
 The two-step API gives you a parsed value tree that you can inspect before serializing:
@@ -20,9 +20,9 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/lattice-substrate/jcs-schubfach/jcs"
-	"github.com/lattice-substrate/jcs-schubfach/jcserr"
-	"github.com/lattice-substrate/jcs-schubfach/jcstoken"
+	"github.com/lattice-substrate/json-canon/jcs"
+	"github.com/lattice-substrate/json-canon/jcserr"
+	"github.com/lattice-substrate/json-canon/jcstoken"
 )
 
 func main() {
@@ -64,7 +64,7 @@ CGO_ENABLED=0 go build -trimpath -buildvcs=false \
 ```
 
 Or download a release binary from the
-[releases page](https://github.com/lattice-substrate/jcs-schubfach/releases).
+[releases page](https://github.com/lattice-substrate/json-canon/releases).
 
 Canonicalize from stdin or a file:
 
@@ -257,10 +257,10 @@ Produce a deterministic hash from arbitrary JSON:
 
 ## Comparison with Other Implementations
 
-| Capability | jcs-schubfach | Cyberphone Go | encoding/json |
+| Capability | json-canon | Cyberphone Go | encoding/json |
 |------------|-----------|---------------|---------------|
 | RFC 8785 canonical output | Yes | Yes | No |
-| ECMA-262 Number::toString | Yes (Schubfach) | Yes (strconv-based) | No |
+| ECMA-262 Number::toString | Yes (Burger-Dybvig) | Yes (strconv-based) | No |
 | UTF-16 code-unit key sort | Yes | Yes | No (byte order) |
 | Strict RFC 8259 grammar | Yes | Partial | Partial |
 | I-JSON constraints (RFC 7493) | Yes | No | No |
@@ -271,13 +271,13 @@ Produce a deterministic hash from arbitrary JSON:
 | External dependencies | None (stdlib only) | None | N/A (stdlib) |
 | Platform support | Linux | Cross-platform | Cross-platform |
 
-The "strconv-based" distinction for Cyberphone Go matters. Both libraries produce RFC 8785-compliant output for well-formed input. The difference is in the input contract: Cyberphone Go's parser is more lenient, which means inputs that jcs-schubfach rejects are silently canonicalized by Cyberphone Go. Whether that's a feature or a defect depends on whether you trust your input pipeline.
+The "strconv-based" distinction for Cyberphone Go matters. Both libraries produce RFC 8785-compliant output for well-formed input. The difference is in the input contract: Cyberphone Go's parser is more lenient, which means inputs that json-canon rejects are silently canonicalized by Cyberphone Go. Whether that's a feature or a defect depends on whether you trust your input pipeline.
 
 ### Differential Strictness
 
-These inputs are accepted by Cyberphone Go but rejected by jcs-schubfach:
+These inputs are accepted by Cyberphone Go but rejected by json-canon:
 
-| Input | Cyberphone Go | jcs-schubfach |
+| Input | Cyberphone Go | json-canon |
 |-------|---------------|------------|
 | `{"n":0x1p-2}` (hex float) | `{"n":0.25}` | reject (`INVALID_GRAMMAR`) |
 | `{"n":+1}` (plus prefix) | `{"n":1}` | reject (`INVALID_GRAMMAR`) |
@@ -299,15 +299,15 @@ go test ./conformance -run TestCyberphoneGoDifferentialInvalidAcceptance -count=
 
 Three things change:
 
-1. **Stricter parsing.** jcs-schubfach rejects hex floats, plus-prefixed numbers, leading-zero numbers, invalid UTF-8, and lone surrogates that Cyberphone Go silently accepts. If your inputs contain any of these, you'll get rejections where you previously got output.
-2. **Typed errors.** jcs-schubfach returns `*jcserr.Error` with a failure class and byte offset, not a generic `error`. You can switch on the class for programmatic handling.
-3. **Two-step API.** Cyberphone Go uses `Transform([]byte) ([]byte, error)`. jcs-schubfach separates parsing from serialization, giving you access to the value tree between steps. Use `jcs.Canonicalize` if you want the single-call equivalent.
+1. **Stricter parsing.** json-canon rejects hex floats, plus-prefixed numbers, leading-zero numbers, invalid UTF-8, and lone surrogates that Cyberphone Go silently accepts. If your inputs contain any of these, you'll get rejections where you previously got output.
+2. **Typed errors.** json-canon returns `*jcserr.Error` with a failure class and byte offset, not a generic `error`. You can switch on the class for programmatic handling.
+3. **Two-step API.** Cyberphone Go uses `Transform([]byte) ([]byte, error)`. json-canon separates parsing from serialization, giving you access to the value tree between steps. Use `jcs.Canonicalize` if you want the single-call equivalent.
 
 ```go
 // Before (Cyberphone Go):
 // out, err := jsoncanonicalizer.Transform(input)
 
-// After (jcs-schubfach):
+// After (json-canon):
 v, err := jcstoken.Parse(input)
 if err != nil {
 	return err

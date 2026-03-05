@@ -248,8 +248,8 @@ func TestParse_IJSON_SUR_002(t *testing.T) {
 
 func TestParse_IJSON_SUR_003(t *testing.T) {
 	v := mustParse(t, `"\uD83D\uDE00"`)
-	if v.Kind != jcstoken.KindString || v.Str != "\U0001F600" {
-		t.Fatalf("got %q want U+1F600", v.Str)
+	if v.Kind != jcstoken.KindString || v.Str != "😀" {
+		t.Fatalf("got %q want 😀", v.Str)
 	}
 }
 

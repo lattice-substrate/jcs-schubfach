@@ -21,8 +21,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if git ls-files --error-unmatch jcs-schubfach >/dev/null 2>&1; then
-            echo "tracked binary is not allowed: jcs-schubfach"
+          if git ls-files --error-unmatch jcs-canon >/dev/null 2>&1; then
+            echo "tracked binary is not allowed: jcs-canon"
+            exit 1
+          fi
+          if git ls-files --error-unmatch lattice-canon >/dev/null 2>&1; then
+            echo "tracked binary is not allowed: lattice-canon"
             exit 1
           fi
           tracked_root_exec=$(git ls-files --stage | awk '$1 == "100755" && $4 !~ /\// {print $4}' | grep -Ev '\.(sh|bash)$' || true)
@@ -31,7 +35,7 @@ jobs:
             echo "$tracked_root_exec"
             exit 1
           fi
-          tracked_offline_bins=$(git ls-files | grep -E '^offline/runs/.+/bin/(jcs-schubfach|jcs-offline-replay|jcs-offline-worker)$' || true)
+          tracked_offline_bins=$(git ls-files | grep -E '^offline/runs/.+/bin/(jcs-canon|jcs-offline-replay|jcs-offline-worker)$' || true)
           if [ -n "$tracked_offline_bins" ]; then
             echo "tracked compiled binaries are not allowed under offline/runs:"
             echo "$tracked_offline_bins"
@@ -75,7 +79,7 @@ jobs:
         run: go vet ./...
       - name: unit tests
         shell: bash
-        run: go test $(go list ./... | grep -v '^github.com/lattice-substrate/jcs-schubfach/conformance$') -count=1 -timeout=20m
+        run: go test $(go list ./... | grep -v '^github.com/lattice-substrate/json-canon/conformance$') -count=1 -timeout=20m
 
   conformance:
     name: Conformance
@@ -128,10 +132,10 @@ jobs:
         run: |
           set -euo pipefail
           tmpdir=$(mktemp -d)
-          out1="$tmpdir/jcs-schubfach-a"
-          out2="$tmpdir/jcs-schubfach-b"
-          CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags="-s -w -buildid= -X main.version=v0.0.0-dev" -o "$out1" ./cmd/jcs-schubfach
-          CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags="-s -w -buildid= -X main.version=v0.0.0-dev" -o "$out2" ./cmd/jcs-schubfach
+          out1="$tmpdir/jcs-canon-a"
+          out2="$tmpdir/jcs-canon-b"
+          CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags="-s -w -buildid= -X main.version=v0.0.0-dev" -o "$out1" ./cmd/jcs-canon
+          CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags="-s -w -buildid= -X main.version=v0.0.0-dev" -o "$out2" ./cmd/jcs-canon
           sha1=$(sha256sum "$out1" | awk '{print $1}')
           sha2=$(sha256sum "$out2" | awk '{print $1}')
           echo "first : $sha1"

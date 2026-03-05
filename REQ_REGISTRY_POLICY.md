@@ -1,6 +1,6 @@
 # Policy Requirement Registry
 
-Formal catalog of project policy requirements for `jcs-schubfach` (profile, ABI, process, determinism).
+Formal catalog of project policy requirements for `json-canon` (profile, ABI, process, determinism).
 
 ## Legend
 
@@ -128,6 +128,6 @@ Formal catalog of project policy requirements for `jcs-schubfach` (profile, ABI,
 | ID | Spec | Section | Level | Requirement |
 |----|------|---------|-------|-------------|
 | DET-REPLAY-001 | Profile | - | MUST | 200 consecutive runs MUST produce byte-identical output. |
-| DET-IDEMPOTENT-001 | Profile | - | MUST | parse->serialize->parse->serialize MUST be idempotent (output1 == output2). |
+| DET-IDEMPOTENT-001 | Profile | - | MUST | parse→serialize→parse→serialize MUST be idempotent (output₁ == output₂). |
 | DET-STATIC-001 | Profile | - | MUST | Binary MUST build with CGO_ENABLED=0, -trimpath, -buildvcs=false, -buildid=. |
 | DET-NOSOURCE-001 | Profile | - | MUST | Core runtime implementation MUST NOT use maps for iteration order, time/random nondeterminism sources, outbound network calls, or subprocess execution. |

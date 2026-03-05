@@ -1,10 +1,9 @@
 // Package jcs implements RFC 8785 JSON Canonicalization Scheme serialization.
 //
 // Given a parsed Value tree (from jcstoken), this package produces the exact
-// canonical byte sequence specified by RFC 8785. Number formatting uses the
-// jcsfloat package (Schubfach-based ECMA-262 Number::toString), and object
-// property names are sorted by UTF-16 code-unit order as mandated by
-// RFC 8785 section 3.2.3.
+// canonical byte sequence specified by RFC 8785. It depends on jcsfloat for
+// ECMA-262-compliant number serialization and uses UTF-16 code-unit ordering
+// for object property name sorting as required by RFC 8785 §3.2.3.
 package jcs
 
 import (
@@ -19,461 +18,405 @@ import (
 	"github.com/lattice-substrate/jcs-schubfach/jcstoken"
 )
 
-// --------------------------------------------------------------------------
-// Public API
-// --------------------------------------------------------------------------
-
-// Canonicalize parses raw JSON bytes and emits the RFC 8785 canonical form.
+// Canonicalize parses JSON input and produces the RFC 8785 JCS canonical byte
+// sequence. It is equivalent to calling jcstoken.Parse followed by Serialize.
 //
-// API-CANON-001: The result is identical to parsing with jcstoken.Parse
-// followed by Serialize.
+// API-CANON-001: Output is identical to Parse followed by Serialize.
 func Canonicalize(input []byte) ([]byte, error) {
-	tree, err := jcstoken.Parse(input)
+	v, err := jcstoken.Parse(input)
 	if err != nil {
-		return nil, err //nolint:wrapcheck // REQ:API-CANON-001 pass through jcstoken parse errors unchanged.
+		return nil, err //nolint:wrapcheck // API-CANON-001: pass through jcstoken parse errors unchanged.
 	}
-	return emit(make([]byte, 0, len(input)), tree, nil)
+	// Pre-allocate: canonical output is typically similar in size to input.
+	return serializeInto(make([]byte, 0, len(input)), v, nil)
 }
 
-// CanonicalizeWithOptions behaves like Canonicalize but forwards caller-
-// supplied options to the parser and the serialization validator.
+// CanonicalizeWithOptions is like Canonicalize but accepts parser options.
 //
-// API-CANON-002: Options are forwarded to ParseWithOptions unchanged.
+// API-CANON-002: Options are passed through to ParseWithOptions.
 func CanonicalizeWithOptions(input []byte, opts *jcstoken.Options) ([]byte, error) {
-	tree, err := jcstoken.ParseWithOptions(input, opts)
+	v, err := jcstoken.ParseWithOptions(input, opts)
 	if err != nil {
-		return nil, err //nolint:wrapcheck // REQ:API-CANON-002 pass through jcstoken parse errors unchanged.
+		return nil, err //nolint:wrapcheck // API-CANON-002: pass through jcstoken parse errors unchanged.
 	}
-	return emit(make([]byte, 0, len(input)), tree, opts)
+	// Pre-allocate: canonical output is typically similar in size to input.
+	return serializeInto(make([]byte, 0, len(input)), v, opts)
 }
 
-// Serialize encodes a value tree into RFC 8785 canonical JSON bytes.
+// Serialize produces the RFC 8785 JCS canonical byte sequence for a parsed
+// JSON value.
 //
-// CANON-ENC-001: Output encoding is UTF-8.
-// CANON-WS-001:  No insignificant whitespace is emitted.
+// CANON-ENC-001: Output is UTF-8.
+// CANON-WS-001: No insignificant whitespace.
 func Serialize(v *jcstoken.Value) ([]byte, error) {
-	return emit(nil, v, nil)
+	return serializeInto(nil, v, nil)
 }
 
-// SerializeWithOptions is like Serialize but validates bounds from opts before
-// emitting.
+// SerializeWithOptions is like Serialize but validates the value tree against
+// caller-supplied bounds before canonical emission.
 func SerializeWithOptions(v *jcstoken.Value, opts *jcstoken.Options) ([]byte, error) {
-	return emit(nil, v, opts)
+	return serializeInto(nil, v, opts)
 }
 
-// --------------------------------------------------------------------------
-// Internal: top-level emit entry point
-// --------------------------------------------------------------------------
-
-func emit(dst []byte, v *jcstoken.Value, opts *jcstoken.Options) ([]byte, error) {
+func serializeInto(buf []byte, v *jcstoken.Value, opts *jcstoken.Options) ([]byte, error) {
 	if v == nil {
 		return nil, jcserr.New(jcserr.InternalError, -1, "jcs: nil value")
 	}
-
-	lim := buildLimits(opts)
-	vs := &validationCounter{}
-	if err := checkTree(v, 0, vs, lim); err != nil {
+	limits := resolveSerializeLimits(opts)
+	state := &serializeValidationState{}
+	if err := validateValueTree(v, 0, state, limits); err != nil {
 		return nil, err
 	}
 
-	return writeValue(dst, v)
+	var err error
+	buf, err = serializeValue(buf, v)
+	if err != nil {
+		return nil, err
+	}
+	return buf, nil
 }
 
-// --------------------------------------------------------------------------
-// Recursive value writer
-// --------------------------------------------------------------------------
-
-func writeValue(dst []byte, v *jcstoken.Value) ([]byte, error) {
+func serializeValue(buf []byte, v *jcstoken.Value) ([]byte, error) {
 	switch v.Kind {
 	case jcstoken.KindNull:
-		// CANON-LIT-001: lowercase null
-		return append(dst, "null"...), nil
-
+		// CANON-LIT-001: lowercase literals
+		return append(buf, "null"...), nil
 	case jcstoken.KindBool:
-		// CANON-LIT-001: lowercase true / false
-		return append(dst, v.Str...), nil
-
+		// CANON-LIT-001: lowercase literals
+		return append(buf, v.Str...), nil
 	case jcstoken.KindNumber:
-		return writeNumber(dst, v.Num)
-
+		return serializeNumber(buf, v.Num)
 	case jcstoken.KindString:
-		return writeString(dst, v.Str), nil
-
+		return serializeString(buf, v.Str), nil
 	case jcstoken.KindArray:
-		return writeArray(dst, v)
-
+		return serializeArray(buf, v)
 	case jcstoken.KindObject:
-		return writeObject(dst, v)
-
+		return serializeObject(buf, v)
 	default:
-		return nil, jcserr.New(jcserr.InternalError, -1,
-			fmt.Sprintf("jcs: unrecognised value kind %d", v.Kind))
+		return nil, jcserr.New(jcserr.InternalError, -1, fmt.Sprintf("jcs: unknown value kind %d", v.Kind))
 	}
 }
 
-// --------------------------------------------------------------------------
-// Number serialization
-// --------------------------------------------------------------------------
-
-func writeNumber(dst []byte, f float64) ([]byte, error) {
-	repr, err := jcsfloat.FormatDouble(f)
+func serializeNumber(buf []byte, f float64) ([]byte, error) {
+	s, err := jcsfloat.FormatDouble(f)
 	if err != nil {
 		return nil, jcserr.Wrap(err.Class, -1, "jcs: number serialization error", err)
 	}
-	return append(dst, repr...), nil
+	return append(buf, s...), nil
 }
 
-// --------------------------------------------------------------------------
-// String serialization  (RFC 8785 section 3.2.2.2)
-// --------------------------------------------------------------------------
+// serializeString applies JCS string escaping rules (RFC 8785 §3.2.2.2).
 //
-// CANON-STR-001: U+0008 -> \b
-// CANON-STR-002: U+0009 -> \t
-// CANON-STR-003: U+000A -> \n
-// CANON-STR-004: U+000C -> \f
-// CANON-STR-005: U+000D -> \r
-// CANON-STR-006: Other controls U+0000..U+001F -> \u00xx (lowercase hex)
-// CANON-STR-007: U+0022 -> \"
-// CANON-STR-008: U+005C -> \\
-// CANON-STR-009: U+002F solidus is NOT escaped
-// CANON-STR-010: Characters > U+001F (except " and \) stay as raw UTF-8
-// CANON-STR-011: No Unicode normalization applied
-// CANON-STR-012: No BOM
-
-func writeString(dst []byte, s string) []byte {
-	dst = append(dst, '"')
-
-	i := 0
-	for i < len(s) {
-		b := s[i]
-
-		if escaped, ok := escapeOneByte(b); ok {
-			dst = append(dst, escaped...)
+// CANON-STR-001: U+0008 -> \b.
+// CANON-STR-002: U+0009 -> \t.
+// CANON-STR-003: U+000A -> \n.
+// CANON-STR-004: U+000C -> \f.
+// CANON-STR-005: U+000D -> \r.
+// CANON-STR-006: Other controls U+0000..U+001F -> \u00xx lowercase.
+// CANON-STR-007: U+0022 -> \".
+// CANON-STR-008: U+005C -> \\.
+// CANON-STR-009: U+002F (solidus) is not escaped.
+// CANON-STR-010: Characters above U+001F (except " and \) remain raw UTF-8.
+// CANON-STR-011: No Unicode normalization.
+func serializeString(buf []byte, s string) []byte {
+	buf = append(buf, '"')
+	for i := 0; i < len(s); {
+		next, consumed := appendEscapedByte(buf, s[i])
+		if consumed {
+			buf = next
 			i++
 			continue
 		}
 
-		// Passthrough span: either a single ASCII byte >= 0x20 (not " or \),
-		// or a complete multi-byte UTF-8 sequence.
-		span := rawSpan(s, i)
-		dst = append(dst, s[i:i+span]...)
-		i += span
+		size := byteSpanForCopy(s, i)
+		buf = append(buf, s[i:i+size]...)
+		i += size
 	}
-
-	dst = append(dst, '"')
-	return dst
+	buf = append(buf, '"')
+	return buf
 }
 
-// escapeOneByte returns the JCS escape sequence for b if b requires escaping,
-// or (nil, false) otherwise.
-func escapeOneByte(b byte) ([]byte, bool) {
+func appendEscapedByte(buf []byte, b byte) ([]byte, bool) {
 	switch b {
 	case '"': // CANON-STR-007
-		return []byte{'\\', '"'}, true
+		return append(buf, '\\', '"'), true
 	case '\\': // CANON-STR-008
-		return []byte{'\\', '\\'}, true
+		return append(buf, '\\', '\\'), true
 	case '\b': // CANON-STR-001
-		return []byte{'\\', 'b'}, true
+		return append(buf, '\\', 'b'), true
 	case '\t': // CANON-STR-002
-		return []byte{'\\', 't'}, true
+		return append(buf, '\\', 't'), true
 	case '\n': // CANON-STR-003
-		return []byte{'\\', 'n'}, true
+		return append(buf, '\\', 'n'), true
 	case '\f': // CANON-STR-004
-		return []byte{'\\', 'f'}, true
+		return append(buf, '\\', 'f'), true
 	case '\r': // CANON-STR-005
-		return []byte{'\\', 'r'}, true
+		return append(buf, '\\', 'r'), true
 	default:
 		if b < 0x20 { // CANON-STR-006
-			return []byte{'\\', 'u', '0', '0', lowerHex(b >> 4), lowerHex(b & 0x0F)}, true
+			return append(buf, '\\', 'u', '0', '0', hexDigit(b>>4), hexDigit(b&0x0F)), true
 		}
-		return nil, false
+		return buf, false
 	}
 }
 
-// lowerHex returns the lowercase hexadecimal digit for a nibble value 0..15.
-func lowerHex(nib byte) byte {
-	const digits = "0123456789abcdef"
-	return digits[nib&0x0F]
-}
-
-// rawSpan returns the number of bytes starting at s[pos] that can be copied
-// verbatim (either one ASCII byte or a full multi-byte UTF-8 sequence).
-func rawSpan(s string, pos int) int {
-	lead := s[pos]
-	if lead < 0x80 {
+func byteSpanForCopy(s string, i int) int {
+	b := s[i]
+	if b < 0x80 {
 		return 1
 	}
-	seqLen := utf8RuneLen(lead)
-	if pos+seqLen > len(s) {
-		return len(s) - pos // truncated sequence: copy remaining bytes
+	size := utf8SeqLen(b)
+	if i+size > len(s) {
+		return len(s) - i
 	}
-	return seqLen
+	return size
 }
 
-// utf8RuneLen returns the byte length of a UTF-8 sequence from its lead byte.
-func utf8RuneLen(lead byte) int {
+func hexDigit(b byte) byte {
+	if b < 10 {
+		return '0' + b
+	}
+	return 'a' + (b - 10)
+}
+
+func utf8SeqLen(b byte) int {
 	switch {
-	case lead < 0xC0:
+	case b < 0x80:
 		return 1
-	case lead < 0xE0:
+	case b < 0xE0:
 		return 2
-	case lead < 0xF0:
+	case b < 0xF0:
 		return 3
 	default:
 		return 4
 	}
 }
 
-// --------------------------------------------------------------------------
-// Array serialization
-// --------------------------------------------------------------------------
-
-func writeArray(dst []byte, v *jcstoken.Value) ([]byte, error) {
-	// CANON-SORT-003: array element order is preserved
-	dst = append(dst, '[')
-	for idx := range v.Elems {
-		if idx > 0 {
-			dst = append(dst, ',')
+func serializeArray(buf []byte, v *jcstoken.Value) ([]byte, error) {
+	// CANON-SORT-003: array order preserved
+	buf = append(buf, '[')
+	for i := range v.Elems {
+		if i > 0 {
+			buf = append(buf, ',')
 		}
 		var err error
-		dst, err = writeValue(dst, &v.Elems[idx])
+		buf, err = serializeValue(buf, &v.Elems[i])
 		if err != nil {
 			return nil, err
 		}
 	}
-	dst = append(dst, ']')
-	return dst, nil
+	buf = append(buf, ']')
+	return buf, nil
 }
 
-// --------------------------------------------------------------------------
-// Object serialization with UTF-16 code-unit key ordering
-// --------------------------------------------------------------------------
-//
-// CANON-SORT-001: Keys are compared by UTF-16 code-unit value, NOT by raw
-//                 UTF-8 byte order.
-// CANON-SORT-002: Sorting is applied recursively (handled by writeValue).
-// CANON-SORT-004: ASCII fast-path -- for keys consisting solely of U+0000..
-//                 U+007F, byte order and UTF-16 code-unit order coincide.
-// CANON-SORT-005: Stability of equal-key ordering is irrelevant because
-//                 duplicate keys are rejected during validation.
-
-// orderedMember pairs a Member with its optional pre-encoded UTF-16 key for
-// sorting.
-type orderedMember struct {
-	m     jcstoken.Member
-	units []uint16 // nil when the key is pure ASCII
-}
-
-func writeObject(dst []byte, v *jcstoken.Value) ([]byte, error) {
-	entries := make([]orderedMember, len(v.Members))
+// serializeObject sorts members by key using UTF-16 code-unit ordering.
+// CANON-SORT-001: UTF-16 code-unit comparison (NOT UTF-8 byte order).
+// CANON-SORT-002: Recursive sorting (nested objects sorted in serializeValue).
+func serializeObject(buf []byte, v *jcstoken.Value) ([]byte, error) {
+	sorted := make([]sortableMember, len(v.Members))
 	for i := range v.Members {
-		entries[i].m = v.Members[i]
-		if !allASCII(v.Members[i].Key) {
-			entries[i].units = utf16.Encode([]rune(v.Members[i].Key))
+		sorted[i].member = v.Members[i]
+		// Fast path: ASCII keys need no UTF-16 encoding since byte order
+		// equals UTF-16 code-unit order for U+0000..U+007F.
+		if !isASCII(v.Members[i].Key) {
+			sorted[i].key16 = utf16.Encode([]rune(v.Members[i].Key))
 		}
 	}
-
-	sort.Slice(entries, func(i, j int) bool {
-		return keyLess(&entries[i], &entries[j])
+	sort.Slice(sorted, func(i, j int) bool {
+		return compareSortKeys(&sorted[i], &sorted[j]) < 0
 	})
 
-	dst = append(dst, '{')
-	for i := range entries {
+	buf = append(buf, '{')
+	for i := range sorted {
 		if i > 0 {
-			dst = append(dst, ',')
+			buf = append(buf, ',')
 		}
-		dst = writeString(dst, entries[i].m.Key)
-		dst = append(dst, ':')
+		buf = serializeString(buf, sorted[i].member.Key)
+		buf = append(buf, ':')
 		var err error
-		dst, err = writeValue(dst, &entries[i].m.Value)
+		buf, err = serializeValue(buf, &sorted[i].member.Value)
 		if err != nil {
 			return nil, err
 		}
 	}
-	dst = append(dst, '}')
-	return dst, nil
+	buf = append(buf, '}')
+	return buf, nil
 }
 
-// allASCII reports whether every byte in s is in [0x00, 0x7F].
-func allASCII(s string) bool {
+type sortableMember struct {
+	member jcstoken.Member
+	key16  []uint16
+}
+
+// isASCII reports whether s contains only ASCII bytes (0x00..0x7F).
+func isASCII(s string) bool {
 	for i := 0; i < len(s); i++ {
-		if s[i] > 0x7F {
+		if s[i] >= 0x80 {
 			return false
 		}
 	}
 	return true
 }
 
-// keyLess compares two orderedMember entries using UTF-16 code-unit ordering.
-// If both keys are pure ASCII (units == nil), plain string comparison is used
-// as an optimisation because byte-value order equals code-unit order for
-// codepoints below U+0080.
-func keyLess(a, b *orderedMember) bool {
-	if a.units == nil && b.units == nil {
-		return a.m.Key < b.m.Key
-	}
-	au := a.units
-	if au == nil {
-		au = utf16.Encode([]rune(a.m.Key))
-	}
-	bu := b.units
-	if bu == nil {
-		bu = utf16.Encode([]rune(b.m.Key))
-	}
-	return cmpUTF16(au, bu) < 0
-}
-
-// cmpUTF16 performs a lexicographic comparison of two UTF-16 code-unit
-// sequences, returning -1, 0, or +1.
-func cmpUTF16(a, b []uint16) int {
-	n := len(a)
-	if len(b) < n {
-		n = len(b)
-	}
-	for i := 0; i < n; i++ {
-		if a[i] < b[i] {
+// compareSortKeys compares two sortable members using UTF-16 code-unit ordering.
+// When both keys are ASCII (key16 == nil), it uses direct string comparison
+// which produces identical ordering since byte values equal UTF-16 code units
+// for U+0000..U+007F.
+func compareSortKeys(a, b *sortableMember) int {
+	if a.key16 == nil && b.key16 == nil {
+		if a.member.Key < b.member.Key {
 			return -1
 		}
-		if a[i] > b[i] {
+		if a.member.Key > b.member.Key {
+			return 1
+		}
+		return 0
+	}
+	ak := a.key16
+	if ak == nil {
+		ak = utf16.Encode([]rune(a.member.Key))
+	}
+	bk := b.key16
+	if bk == nil {
+		bk = utf16.Encode([]rune(b.member.Key))
+	}
+	return compareUTF16Units(ak, bk)
+}
+
+func compareUTF16Units(ua, ub []uint16) int {
+	minLen := len(ua)
+	if len(ub) < minLen {
+		minLen = len(ub)
+	}
+	for i := 0; i < minLen; i++ {
+		if ua[i] < ub[i] {
+			return -1
+		}
+		if ua[i] > ub[i] {
 			return 1
 		}
 	}
-	switch {
-	case len(a) < len(b):
+	if len(ua) < len(ub) {
 		return -1
-	case len(a) > len(b):
-		return 1
-	default:
-		return 0
 	}
+	if len(ua) > len(ub) {
+		return 1
+	}
+	return 0
 }
 
-// --------------------------------------------------------------------------
-// Validation: pre-serialization tree check
-// --------------------------------------------------------------------------
-
-type validationCounter struct {
-	total int
+type serializeValidationState struct {
+	values int
 }
 
-type limits struct {
-	depth    int
-	values   int
-	members  int
-	elems    int
-	strBytes int
+type serializeLimits struct {
+	maxDepth         int
+	maxValues        int
+	maxObjectMembers int
+	maxArrayElements int
+	maxStringBytes   int
 }
 
-func buildLimits(opts *jcstoken.Options) limits {
+func resolveSerializeLimits(opts *jcstoken.Options) serializeLimits {
 	if opts == nil {
-		return limits{
-			depth:    jcstoken.DefaultMaxDepth,
-			values:   jcstoken.DefaultMaxValues,
-			members:  jcstoken.DefaultMaxObjectMembers,
-			elems:    jcstoken.DefaultMaxArrayElements,
-			strBytes: jcstoken.DefaultMaxStringBytes,
+		return serializeLimits{
+			maxDepth:         jcstoken.DefaultMaxDepth,
+			maxValues:        jcstoken.DefaultMaxValues,
+			maxObjectMembers: jcstoken.DefaultMaxObjectMembers,
+			maxArrayElements: jcstoken.DefaultMaxArrayElements,
+			maxStringBytes:   jcstoken.DefaultMaxStringBytes,
 		}
 	}
-	return limits{
-		depth:    pick(opts.MaxDepth, jcstoken.DefaultMaxDepth),
-		values:   pick(opts.MaxValues, jcstoken.DefaultMaxValues),
-		members:  pick(opts.MaxObjectMembers, jcstoken.DefaultMaxObjectMembers),
-		elems:    pick(opts.MaxArrayElements, jcstoken.DefaultMaxArrayElements),
-		strBytes: pick(opts.MaxStringBytes, jcstoken.DefaultMaxStringBytes),
+	return serializeLimits{
+		maxDepth:         resolveSerializeLimit(opts.MaxDepth, jcstoken.DefaultMaxDepth),
+		maxValues:        resolveSerializeLimit(opts.MaxValues, jcstoken.DefaultMaxValues),
+		maxObjectMembers: resolveSerializeLimit(opts.MaxObjectMembers, jcstoken.DefaultMaxObjectMembers),
+		maxArrayElements: resolveSerializeLimit(opts.MaxArrayElements, jcstoken.DefaultMaxArrayElements),
+		maxStringBytes:   resolveSerializeLimit(opts.MaxStringBytes, jcstoken.DefaultMaxStringBytes),
 	}
 }
 
-func pick(custom, fallback int) int {
-	if custom > 0 {
-		return custom
+func resolveSerializeLimit(val, def int) int {
+	if val > 0 {
+		return val
 	}
-	return fallback
+	return def
 }
 
 //nolint:gocyclo,cyclop,gocognit // REQ:IJSON-DUP-001 spec-bound validation logic is intentionally explicit for requirement traceability.
-func checkTree(v *jcstoken.Value, depth int, vc *validationCounter, lim limits) error {
-	vc.total++
-	if vc.total > lim.values {
+func validateValueTree(v *jcstoken.Value, depth int, state *serializeValidationState, limits serializeLimits) error {
+	state.values++
+	if state.values > limits.maxValues {
 		return jcserr.New(jcserr.BoundExceeded, -1,
-			fmt.Sprintf("jcs: value count exceeds maximum %d", lim.values))
+			fmt.Sprintf("jcs: value count exceeds maximum %d", limits.maxValues))
 	}
-	if depth > lim.depth {
+	if depth > limits.maxDepth {
 		return jcserr.New(jcserr.BoundExceeded, -1,
-			fmt.Sprintf("jcs: value nesting depth exceeds maximum %d", lim.depth))
+			fmt.Sprintf("jcs: value nesting depth exceeds maximum %d", limits.maxDepth))
 	}
 
 	switch v.Kind {
 	case jcstoken.KindNull:
-		// nothing to validate
 		return nil
-
 	case jcstoken.KindBool:
 		if v.Str != "true" && v.Str != "false" {
 			return jcserr.New(jcserr.InvalidGrammar, -1,
 				fmt.Sprintf("jcs: invalid boolean payload %q", v.Str))
 		}
 		return nil
-
 	case jcstoken.KindNumber:
 		if math.IsNaN(v.Num) || math.IsInf(v.Num, 0) {
-			return jcserr.New(jcserr.InvalidGrammar, -1,
-				"jcs: number is not finite")
+			return jcserr.New(jcserr.InvalidGrammar, -1, "jcs: number is not finite")
 		}
 		return nil
-
 	case jcstoken.KindString:
-		if err := checkString(v.Str, lim.strBytes); err != nil {
+		if err := validateString(v.Str, limits.maxStringBytes); err != nil {
 			return err
 		}
 		return nil
-
 	case jcstoken.KindArray:
-		if len(v.Elems) > lim.elems {
+		if len(v.Elems) > limits.maxArrayElements {
 			return jcserr.New(jcserr.BoundExceeded, -1,
-				fmt.Sprintf("jcs: array element count exceeds maximum %d", lim.elems))
+				fmt.Sprintf("jcs: array element count exceeds maximum %d", limits.maxArrayElements))
 		}
 		for i := range v.Elems {
-			if err := checkTree(&v.Elems[i], depth+1, vc, lim); err != nil {
+			if err := validateValueTree(&v.Elems[i], depth+1, state, limits); err != nil {
 				return err
 			}
 		}
 		return nil
-
 	case jcstoken.KindObject:
-		if len(v.Members) > lim.members {
+		if len(v.Members) > limits.maxObjectMembers {
 			return jcserr.New(jcserr.BoundExceeded, -1,
-				fmt.Sprintf("jcs: object member count exceeds maximum %d", lim.members))
+				fmt.Sprintf("jcs: object member count exceeds maximum %d", limits.maxObjectMembers))
 		}
-		keys := make(map[string]struct{}, len(v.Members))
+		seen := make(map[string]struct{}, len(v.Members))
 		for i := range v.Members {
-			if err := checkString(v.Members[i].Key, lim.strBytes); err != nil {
+			if err := validateString(v.Members[i].Key, limits.maxStringBytes); err != nil {
 				return jcserr.Wrap(err.Class, err.Offset, "jcs: invalid object key", err)
 			}
-			if _, dup := keys[v.Members[i].Key]; dup {
+			if _, ok := seen[v.Members[i].Key]; ok {
 				return jcserr.New(jcserr.DuplicateKey, -1,
 					fmt.Sprintf("jcs: duplicate object key %q", v.Members[i].Key))
 			}
-			keys[v.Members[i].Key] = struct{}{}
-			if err := checkTree(&v.Members[i].Value, depth+1, vc, lim); err != nil {
+			seen[v.Members[i].Key] = struct{}{}
+			if err := validateValueTree(&v.Members[i].Value, depth+1, state, limits); err != nil {
 				return err
 			}
 		}
 		return nil
-
 	default:
-		return jcserr.New(jcserr.InternalError, -1,
-			fmt.Sprintf("jcs: unknown value kind %d", v.Kind))
+		return jcserr.New(jcserr.InternalError, -1, fmt.Sprintf("jcs: unknown value kind %d", v.Kind))
 	}
 }
 
-func checkString(s string, maxBytes int) *jcserr.Error {
+func validateString(s string, maxStringBytes int) *jcserr.Error {
 	if !utf8.ValidString(s) {
-		return jcserr.New(jcserr.InvalidUTF8, -1,
-			"jcs: string is not valid UTF-8")
+		return jcserr.New(jcserr.InvalidUTF8, -1, "jcs: string is not valid UTF-8")
 	}
-	if len(s) > maxBytes {
+	if len(s) > maxStringBytes {
 		return jcserr.New(jcserr.BoundExceeded, -1,
-			fmt.Sprintf("jcs: string length exceeds maximum %d bytes", maxBytes))
+			fmt.Sprintf("jcs: string length exceeds maximum %d bytes", maxStringBytes))
 	}
 	for _, r := range s {
 		if jcstoken.IsNoncharacter(r) {

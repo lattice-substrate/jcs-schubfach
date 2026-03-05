@@ -1,6 +1,6 @@
 # Conformance Vector Format
 
-`jcs-schubfach` uses JSONL vectors under `conformance/vectors/`.
+`json-canon` uses JSONL vectors under `conformance/vectors/`.
 
 Each non-empty, non-comment line is one JSON object test case.
 

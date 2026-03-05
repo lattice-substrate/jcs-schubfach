@@ -12,7 +12,7 @@ Two issues were discovered in the v0.2.0 release evidence committed to the
 public repository:
 
 1. **Local path exposure.** The offline replay harness wrote absolute filesystem
-   paths (`/home/<user>/jcs-schubfach/...`) into all metadata artifacts (RUN_INDEX,
+   paths (`/home/<user>/json-canon/...`) into all metadata artifacts (RUN_INDEX,
    checksums, audit summaries, cross-arch reports). Root cause: `filepath.Abs()`
    converted `--output-dir` to absolute, and all downstream write functions
    emitted these paths verbatim into artifacts.

@@ -145,7 +145,7 @@ Before creating a release tag, all must be true:
 
 ### Versioning
 
-`jcs-schubfach` uses strict SemVer for stable CLI ABI.
+`json-canon` uses strict SemVer for stable CLI ABI.
 
 1. Patch: bug fixes only, no ABI changes.
 2. Minor: backward-compatible additions.
@@ -326,7 +326,7 @@ How to verify the authenticity and integrity of release artifacts.
 ### 1. Download Artifacts
 
 ```bash
-gh release download vX.Y.Z --repo lattice-substrate/jcs-schubfach --dir ./release
+gh release download vX.Y.Z --repo lattice-substrate/json-canon --dir ./release
 ```
 
 ### 2. Verify Checksums
@@ -343,7 +343,7 @@ tampered artifact.
 
 ```bash
 gh attestation verify ./jcs-canon-linux-x86_64.tar.gz \
-  --repo lattice-substrate/jcs-schubfach
+  --repo lattice-substrate/json-canon
 ```
 
 Successful output confirms:
@@ -354,8 +354,8 @@ Successful output confirms:
 ### 4. Verify Reproducible Build
 
 ```bash
-git clone https://github.com/lattice-substrate/jcs-schubfach.git
-cd jcs-schubfach
+git clone https://github.com/lattice-substrate/json-canon.git
+cd json-canon
 git checkout vX.Y.Z
 
 CGO_ENABLED=0 go build -trimpath -buildvcs=false \

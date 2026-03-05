@@ -1,7 +1,11 @@
 # ABI Contract
 
-Stable CLI ABI contract for `jcs-schubfach`. The machine-readable source of truth
+Stable CLI ABI contract for `json-canon`. The machine-readable source of truth
 is `abi_manifest.json`; both must remain consistent.
+
+Systems that pin a canonicalizer version build automation around its command
+surface, exit codes, and output bytes. A silent change to any of these breaks
+every dependent system simultaneously.
 
 ## Stability Policy
 
@@ -37,7 +41,7 @@ The stable ABI includes:
 ### Command Flags
 
 - `--help`, `-h` (exit 0)
-- `--quiet` (for `verify`; suppresses `ok\n` success text; accepted by `canonicalize` for command symmetry)
+- `--quiet` (for `verify`; suppresses `ok\n` success text; accepted by `canonicalize` for command symmetry and has no success-output effect)
 
 ## Input Contract
 
@@ -48,12 +52,14 @@ The stable ABI includes:
 
 ## Output Stream Contract
 
-1. `canonicalize` success emits canonical bytes to `stdout` with no trailing newline; `stderr` is empty.
+1. `canonicalize` success emits canonical bytes to `stdout` with no trailing newline; `stderr` is empty. The output-is-canonical-bytes contract requires byte-exact fidelity.
 2. `verify` success emits `ok\n` to `stderr` unless `--quiet`.
 3. Help text is user-facing and exits with status `0`.
 4. Error diagnostics are emitted to `stderr`.
 
 ## Exit Code Contract
+
+Stable process exits:
 
 - `0`: success
 - `2`: input rejection or CLI usage violation

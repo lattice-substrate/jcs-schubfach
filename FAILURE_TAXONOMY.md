@@ -1,20 +1,20 @@
 # Failure Taxonomy
 
-Failure classes for `jcs-schubfach`, each mapping to a fixed exit code.
+Failure classes for `json-canon`, each mapping to a fixed exit code.
 
 ## Failure Classes
 
 | Class | Exit Code | Description |
 |-------|-----------|-------------|
-| INVALID_UTF8 | 2 | Invalid UTF-8 byte sequences (RFC 3629 violation) |
+| INVALID_UTF8 | 2 | Invalid UTF-8 byte sequences (RFC 3629 §3 violation) |
 | INVALID_GRAMMAR | 2 | RFC 8259 JSON grammar violation (leading zeros, trailing commas, bad escapes, etc.) |
-| DUPLICATE_KEY | 2 | Duplicate object member name after escape decoding (RFC 7493) |
-| LONE_SURROGATE | 2 | Lone surrogate code point in string (RFC 7493) |
-| NONCHARACTER | 2 | Unicode noncharacter in string (RFC 7493) |
+| DUPLICATE_KEY | 2 | Duplicate object member name after escape decoding (RFC 7493 §2.3) |
+| LONE_SURROGATE | 2 | Lone surrogate code point in string (RFC 7493 §2.1) |
+| NONCHARACTER | 2 | Unicode noncharacter in string (RFC 7493 §2.1) |
 | NUMBER_OVERFLOW | 2 | Number overflows IEEE 754 binary64 range |
 | NUMBER_NEGZERO | 2 | Lexical negative zero token (`-0`, `-0.0`, etc.) |
 | NUMBER_UNDERFLOW | 2 | Non-zero number underflows to IEEE 754 zero |
-| BOUND_EXCEEDED | 2 | Resource/input policy bound exceeded (depth, size, count, etc.) |
+| BOUND_EXCEEDED | 2 | Resource/input policy bound exceeded (depth, size, count, etc.) regardless of stdin/file source |
 | NOT_CANONICAL | 2 | Valid JSON but not byte-identical to canonical form |
 | CLI_USAGE | 2 | Invalid CLI usage (unknown command/flag, multiple inputs, unreadable file path) |
 | INTERNAL_IO | 10 | Output/help/version/status-channel write failure or I/O stream error |
@@ -35,7 +35,8 @@ classified as `CLI_USAGE` (exit 2), not `INTERNAL_IO` (exit 10).
 
 Rationale: a file path is a user-supplied argument. When the path cannot be opened,
 the root cause is invalid user input (wrong path, missing file, wrong type), not an
-I/O system failure.
+I/O system failure. This parallels how shells treat "command not found" as a usage
+error rather than a system error.
 
 `INTERNAL_IO` is reserved for failures that occur after a valid I/O channel is
 established (e.g., write failures to stdout, pipe breakage mid-stream).
@@ -45,9 +46,8 @@ established (e.g., write failures to stdout, pipe breakage mid-stream).
 
 ## Offset Semantics
 
-`jcserr.Error.Offset` uses source-byte positions in the original input stream.
-For escaped string diagnostics, offsets point to the originating escape sequence
-start (or second escape start for malformed surrogate pairs).
+`jcserr.Error.Offset` uses **source-byte positions** in the original input stream.
+For escaped string diagnostics, offsets point to the originating escape sequence start (or second escape start for malformed surrogate pairs).
 
 ## Mapping to Requirements
 
