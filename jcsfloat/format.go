@@ -1,4 +1,4 @@
-package schubfach
+package jcsfloat
 
 // formatECMA applies the ECMA-262 §6.1.6.1.20 formatting rules (steps 7-10).
 //
@@ -14,13 +14,13 @@ func formatECMA(negative bool, digits string, n int) string {
 
 	switch {
 	case isIntegerFixed(k, n):
-		// ECMA-FMT-004: 1 ≤ n ≤ 21, k ≤ n → integer with trailing zeros
+		// ECMA-FMT-004: 1 <= n <= 21, k <= n -> integer with trailing zeros
 		buf = appendIntegerFixed(buf, digits, k, n)
 	case isFractionFixed(n):
-		// ECMA-FMT-005: 0 < n ≤ 21, n < k → fixed decimal
+		// ECMA-FMT-005: 0 < n <= 21, n < k -> fixed decimal
 		buf = appendFractionFixed(buf, digits, n)
 	case isSmallFraction(n):
-		// ECMA-FMT-006: -6 < n ≤ 0 → 0.000...digits
+		// ECMA-FMT-006: -6 < n <= 0 -> 0.000...digits
 		buf = appendSmallFraction(buf, digits, n)
 	default:
 		// ECMA-FMT-007: exponential notation

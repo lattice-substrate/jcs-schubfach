@@ -1,0 +1,139 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'articles/**'
+  pull_request:
+    branches: [main]
+    paths-ignore:
+      - 'articles/**'
+  workflow_dispatch:
+
+jobs:
+  binary_hygiene:
+    name: Binary Hygiene
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Fail on tracked root binaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git ls-files --error-unmatch jcs-schubfach >/dev/null 2>&1; then
+            echo "tracked binary is not allowed: jcs-schubfach"
+            exit 1
+          fi
+          tracked_root_exec=$(git ls-files --stage | awk '$1 == "100755" && $4 !~ /\// {print $4}' | grep -Ev '\.(sh|bash)$' || true)
+          if [ -n "$tracked_root_exec" ]; then
+            echo "unexpected executable files tracked in repo root:"
+            echo "$tracked_root_exec"
+            exit 1
+          fi
+          tracked_offline_bins=$(git ls-files | grep -E '^offline/runs/.+/bin/(jcs-schubfach|jcs-offline-replay|jcs-offline-worker)$' || true)
+          if [ -n "$tracked_offline_bins" ]; then
+            echo "tracked compiled binaries are not allowed under offline/runs:"
+            echo "$tracked_offline_bins"
+            exit 1
+          fi
+
+  lint:
+    name: Lint
+    needs: binary_hygiene
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: '1.24.x'
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@55c2c1448f86e01eaae002a5a3a9624417608d84 # v6.5.2
+        with:
+          version: v1.64.8
+          args: --config=golangci.yml
+      - name: coverage gate (>=70%)
+        shell: bash
+        run: bash ./scripts/coverage_gate.sh
+
+  test_matrix:
+    name: Vet+Unit (${{ matrix.os }}, Go ${{ matrix.go }})
+    needs: [binary_hygiene, lint]
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+        go: ['1.22.x', '1.23.x', '1.24.x', '1.25.x', '1.26.x']
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: ${{ matrix.go }}
+      - name: go vet
+        shell: bash
+        run: go vet ./...
+      - name: unit tests
+        shell: bash
+        run: go test $(go list ./... | grep -v '^github.com/lattice-substrate/jcs-schubfach/conformance$') -count=1 -timeout=20m
+
+  conformance:
+    name: Conformance
+    needs: test_matrix
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: '1.24.x'
+      - name: conformance (includes official ES6 10k checksum gate)
+        run: go test ./conformance -count=1 -v -timeout=10m
+
+  race:
+    name: Race Tests
+    needs: test_matrix
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: '1.24.x'
+      - run: go test ./... -race -count=1 -timeout=25m
+
+  fuzz:
+    name: Fuzz Smoke
+    needs: test_matrix
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: '1.24.x'
+      - name: fuzz jcstoken
+        run: go test ./jcstoken -run=^$ -fuzz=FuzzParseCanonicalRoundTrip -fuzztime=30s
+      - name: fuzz jcsfloat
+        run: go test ./jcsfloat -run=^$ -fuzz=FuzzFormatDoubleRoundTrip -fuzztime=30s
+
+  reproducible_build:
+    name: Reproducible Build
+    needs: [conformance, race, fuzz]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: '1.24.x'
+      - name: build twice and compare sha256
+        shell: bash
+        run: |
+          set -euo pipefail
+          tmpdir=$(mktemp -d)
+          out1="$tmpdir/jcs-schubfach-a"
+          out2="$tmpdir/jcs-schubfach-b"
+          CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags="-s -w -buildid= -X main.version=v0.0.0-dev" -o "$out1" ./cmd/jcs-schubfach
+          CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags="-s -w -buildid= -X main.version=v0.0.0-dev" -o "$out2" ./cmd/jcs-schubfach
+          sha1=$(sha256sum "$out1" | awk '{print $1}')
+          sha2=$(sha256sum "$out2" | awk '{print $1}')
+          echo "first : $sha1"
+          echo "second: $sha2"
+          test "$sha1" = "$sha2"

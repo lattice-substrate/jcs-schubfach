@@ -4,7 +4,7 @@
 // Copyright 2021 The Go Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license.
 
-package schubfach
+package jcsfloat
 
 // pow10MinExp is the minimum decimal exponent in the table.
 const pow10MinExp = -348

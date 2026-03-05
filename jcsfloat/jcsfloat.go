@@ -1,15 +1,15 @@
-// Package schubfach implements the ECMAScript Number::toString algorithm for
-// IEEE 754 double-precision floating-point values using fixed-width 128-bit
-// arithmetic (zero heap allocations for all finite inputs).
+// Package jcsfloat implements the ECMAScript Number::toString algorithm for
+// IEEE 754 double-precision floating-point values using the Schubfach algorithm
+// with fixed-width 128-bit arithmetic.
 //
 // The algorithm is specified in ECMA-262 §6.1.6.1.20 (Number::toString).
-// The digit generation uses precomputed 128-bit powers of 10, 64×128-bit
+// The digit generation uses precomputed 128-bit powers of 10, 64x128-bit
 // multiply for interval scaling, and shortest-output digit extraction with
 // ECMA-262 Note 2 (even-digit) tie-breaking.
 //
 // FormatDouble is validated against large pinned ECMAScript oracle datasets and
 // round-trip fuzzing for finite doubles.
-package schubfach
+package jcsfloat
 
 import (
 	"math"
@@ -23,19 +23,19 @@ import (
 //
 // ECMA-FMT-001: NaN returns error.
 // ECMA-FMT-002: -0 returns "0".
-// ECMA-FMT-003: ±Infinity returns error.
+// ECMA-FMT-003: +/-Infinity returns error.
 // ECMA-FMT-008: Shortest round-trip representation.
 // ECMA-FMT-009: Even-digit tie-breaking.
 func FormatDouble(f float64) (string, *jcserr.Error) {
-	// ECMA-FMT-001: NaN → error
+	// ECMA-FMT-001: NaN -> error
 	if math.IsNaN(f) {
 		return "", jcserr.New(jcserr.InvalidGrammar, -1, "NaN is not representable in JSON")
 	}
-	// ECMA-FMT-002: -0 and +0 → "0"
+	// ECMA-FMT-002: -0 and +0 -> "0"
 	if f == 0 {
 		return "0", nil
 	}
-	// ECMA-FMT-003: ±Infinity → error
+	// ECMA-FMT-003: +/-Infinity -> error
 	if math.IsInf(f, 0) {
 		return "", jcserr.New(jcserr.InvalidGrammar, -1, "Infinity is not representable in JSON")
 	}
@@ -61,10 +61,12 @@ const (
 // shortestDecimal returns the shortest decimal representation of a positive
 // finite nonzero float64. Returns (digits, dp) where dp is the decimal point
 // position (number of integer-part digits in fixed-point view).
+//
+//nolint:gocyclo,cyclop,gocognit,funlen // REQ:ECMA-FMT-008 Schubfach digit extraction is inherently branch-heavy for shortest-output correctness.
 func shortestDecimal(f float64) (string, int) {
 	fbits := math.Float64bits(f)
 	rawMant := fbits & mantMask64
-	rawExp := int(fbits>>mantBits64) & expMask64
+	rawExp := int(fbits>>mantBits64) & expMask64 //nolint:gosec // REQ:ECMA-FMT-008 expMask64 bounds result to [0,2047], safe for int.
 
 	var mant uint64
 	var exp int
@@ -82,7 +84,7 @@ func shortestDecimal(f float64) (string, int) {
 	// If input is an exact integer with fewer bits than the mantissa,
 	// the previous and next integer are not admissible representations.
 	if exp <= 0 && bits.TrailingZeros64(mant) >= -exp {
-		m := mant >> uint(-exp)
+		m := mant >> uint(-exp) //nolint:gosec // REQ:ECMA-FMT-008 exp<=0 guaranteed by enclosing if; -exp is non-negative.
 		return formatUint(m), countDecimalDigits(m)
 	}
 
@@ -143,7 +145,7 @@ func shortestDecimal(f float64) (string, int) {
 	}
 
 	// Should 'dc' be rounded up? (ECMA-FMT-009: even-digit tie-breaking)
-	cup := false
+	var cup bool
 	if dc0 {
 		cup = fracc > 1<<(extra-1) ||
 			(fracc == 1<<(extra-1) && dc&1 == 1)
@@ -163,8 +165,8 @@ func shortestDecimal(f float64) (string, int) {
 	return digits, dp
 }
 
-// computeBounds returns (lower, central, upper) × 2^e2 describing the
-// rounding interval for mant × 2^exp.
+// computeBounds returns (lower, central, upper) x 2^e2 describing the
+// rounding interval for mant x 2^exp.
 func computeBounds(mant uint64, exp int) (lower, central, upper uint64, e2 int) {
 	if mant != 1<<mantBits64 || exp == 1-bias64-mantBits64 {
 		// Regular case (or subnormals)
@@ -222,6 +224,8 @@ func divisibleByPower5(m uint64, k int) bool {
 
 // ryuShortest finds the shortest decimal from the interval [dl, du] with
 // center dc. Returns (digits, dp) where dp is the decimal point position.
+//
+//nolint:gocyclo,cyclop // REQ:ECMA-FMT-008 Ryu-style shortest digit loop mirrors algorithm specification with explicit branch points.
 func ryuShortest(dl, dc, du uint64, c0, cup bool, q int) (string, int) {
 	// Trim trailing decimal digits while the interval allows.
 	trimmed := 0

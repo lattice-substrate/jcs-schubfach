@@ -1,4 +1,4 @@
-package schubfach_test
+package jcsfloat_test
 
 import (
 	"bufio"
@@ -11,22 +11,22 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/lattice-substrate/jcs-schubfach"
+	"github.com/lattice-substrate/jcs-schubfach/jcsfloat"
 )
 
 // === ECMA-FMT-001: NaN rejected ===
 
 func TestFormatDouble_ECMA_FMT_001(t *testing.T) {
-	_, err := schubfach.FormatDouble(math.NaN())
+	_, err := jcsfloat.FormatDouble(math.NaN())
 	if err == nil {
 		t.Fatal("expected error for NaN")
 	}
 }
 
-// === ECMA-FMT-002: -0 → "0" ===
+// === ECMA-FMT-002: -0 -> "0" ===
 
 func TestFormatDouble_ECMA_FMT_002(t *testing.T) {
-	got, err := schubfach.FormatDouble(math.Copysign(0, -1))
+	got, err := jcsfloat.FormatDouble(math.Copysign(0, -1))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -34,7 +34,7 @@ func TestFormatDouble_ECMA_FMT_002(t *testing.T) {
 		t.Fatalf("got %q want %q", got, "0")
 	}
 	// Also verify +0
-	got, err = schubfach.FormatDouble(0)
+	got, err = jcsfloat.FormatDouble(0)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -43,18 +43,18 @@ func TestFormatDouble_ECMA_FMT_002(t *testing.T) {
 	}
 }
 
-// === ECMA-FMT-003: ±Infinity rejected ===
+// === ECMA-FMT-003: +/-Infinity rejected ===
 
 func TestFormatDouble_ECMA_FMT_003(t *testing.T) {
 	for _, v := range []float64{math.Inf(+1), math.Inf(-1)} {
-		_, err := schubfach.FormatDouble(v)
+		_, err := jcsfloat.FormatDouble(v)
 		if err == nil {
 			t.Fatalf("expected error for %v", v)
 		}
 	}
 }
 
-// === ECMA-FMT-004: integer fixed (k ≤ n ≤ 21) ===
+// === ECMA-FMT-004: integer fixed (k <= n <= 21) ===
 
 func TestFormatDouble_ECMA_FMT_004(t *testing.T) {
 	cases := []struct {
@@ -68,7 +68,7 @@ func TestFormatDouble_ECMA_FMT_004(t *testing.T) {
 		{1e20, "100000000000000000000"},
 	}
 	for _, tc := range cases {
-		got, err := schubfach.FormatDouble(tc.input)
+		got, err := jcsfloat.FormatDouble(tc.input)
 		if err != nil {
 			t.Fatalf("FormatDouble(%v): %v", tc.input, err)
 		}
@@ -78,7 +78,7 @@ func TestFormatDouble_ECMA_FMT_004(t *testing.T) {
 	}
 }
 
-// === ECMA-FMT-005: fraction fixed (0 < n ≤ 21, n < k) ===
+// === ECMA-FMT-005: fraction fixed (0 < n <= 21, n < k) ===
 
 func TestFormatDouble_ECMA_FMT_005(t *testing.T) {
 	cases := []struct {
@@ -90,7 +90,7 @@ func TestFormatDouble_ECMA_FMT_005(t *testing.T) {
 		{1.2345678901234567, "1.2345678901234567"},
 	}
 	for _, tc := range cases {
-		got, err := schubfach.FormatDouble(tc.input)
+		got, err := jcsfloat.FormatDouble(tc.input)
 		if err != nil {
 			t.Fatalf("FormatDouble(%v): %v", tc.input, err)
 		}
@@ -100,10 +100,10 @@ func TestFormatDouble_ECMA_FMT_005(t *testing.T) {
 	}
 }
 
-// === ECMA-FMT-006: small fraction (-6 < n ≤ 0) ===
+// === ECMA-FMT-006: small fraction (-6 < n <= 0) ===
 
 func TestFormatDouble_ECMA_FMT_006(t *testing.T) {
-	got, err := schubfach.FormatDouble(0.000001)
+	got, err := jcsfloat.FormatDouble(0.000001)
 	if err != nil {
 		t.Fatalf("FormatDouble(0.000001): %v", err)
 	}
@@ -124,7 +124,7 @@ func TestFormatDouble_ECMA_FMT_007(t *testing.T) {
 		{math.MaxFloat64, "1.7976931348623157e+308"},
 	}
 	for _, tc := range cases {
-		got, err := schubfach.FormatDouble(tc.input)
+		got, err := jcsfloat.FormatDouble(tc.input)
 		if err != nil {
 			t.Fatalf("FormatDouble(%v): %v", tc.input, err)
 		}
@@ -139,7 +139,7 @@ func TestFormatDouble_ECMA_FMT_007(t *testing.T) {
 func TestFormatDouble_ECMA_FMT_008(t *testing.T) {
 	cases := []float64{5e-324, 1e-7, 1e-6, 0.1, 0.2, 1.1, 1, 2, 1e20, 1e21, math.MaxFloat64}
 	for _, c := range cases {
-		f1, err := schubfach.FormatDouble(c)
+		f1, err := jcsfloat.FormatDouble(c)
 		if err != nil {
 			t.Fatalf("format(%.17g): %v", c, err)
 		}
@@ -161,7 +161,7 @@ func TestFormatDouble_ECMA_FMT_009(t *testing.T) {
 		if math.IsNaN(v) || math.IsInf(v, 0) {
 			continue
 		}
-		f1, err := schubfach.FormatDouble(v)
+		f1, err := jcsfloat.FormatDouble(v)
 		if err != nil {
 			t.Fatalf("format bits=%016x: %v", math.Float64bits(v), err)
 		}
@@ -169,7 +169,7 @@ func TestFormatDouble_ECMA_FMT_009(t *testing.T) {
 		if parseErr != nil {
 			t.Fatalf("parse bits=%016x text=%q: %v", math.Float64bits(v), f1, parseErr)
 		}
-		f2, err := schubfach.FormatDouble(parsed)
+		f2, err := jcsfloat.FormatDouble(parsed)
 		if err != nil {
 			t.Fatalf("re-format bits=%016x: %v", math.Float64bits(v), err)
 		}
@@ -182,7 +182,7 @@ func TestFormatDouble_ECMA_FMT_009(t *testing.T) {
 // === ECMA-FMT-010: negative numbers serialize with leading '-' (step 3) ===
 
 func TestFormatDouble_ECMA_FMT_010(t *testing.T) {
-	got, err := schubfach.FormatDouble(-12.5)
+	got, err := jcsfloat.FormatDouble(-12.5)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -194,7 +194,7 @@ func TestFormatDouble_ECMA_FMT_010(t *testing.T) {
 // === ECMA-FMT-011: choose minimal k (step 5 shortest representation basis) ===
 
 func TestFormatDouble_ECMA_FMT_011(t *testing.T) {
-	got, err := schubfach.FormatDouble(1.2300000000000002)
+	got, err := jcsfloat.FormatDouble(1.2300000000000002)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -206,7 +206,7 @@ func TestFormatDouble_ECMA_FMT_011(t *testing.T) {
 // === ECMA-FMT-012: scientific format k=1 omits decimal point (step 10 branch) ===
 
 func TestFormatDouble_ECMA_FMT_012(t *testing.T) {
-	got, err := schubfach.FormatDouble(1e21)
+	got, err := jcsfloat.FormatDouble(1e21)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -248,7 +248,7 @@ func TestBoundaryConstants(t *testing.T) {
 		{0x444b1ae4d6e2ef51, "1.0000000000000001e+21"},   // just above
 	}
 	for _, tc := range cases {
-		got, err := schubfach.FormatDouble(math.Float64frombits(tc.bits))
+		got, err := jcsfloat.FormatDouble(math.Float64frombits(tc.bits))
 		if err != nil {
 			t.Fatalf("format bits=%016x: %v", tc.bits, err)
 		}
@@ -294,7 +294,7 @@ func verifyOracle(t *testing.T, path string, expectedRows int, expectedSHA256 st
 		if err != nil {
 			t.Fatalf("line %d parse bits: %v", rows, err)
 		}
-		got, fmtErr := schubfach.FormatDouble(math.Float64frombits(bits))
+		got, fmtErr := jcsfloat.FormatDouble(math.Float64frombits(bits))
 		if fmtErr != nil {
 			t.Fatalf("line %d unexpected format error: %v", rows, fmtErr)
 		}

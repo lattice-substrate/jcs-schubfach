@@ -1,10 +1,10 @@
-package schubfach_test
+package jcsfloat_test
 
 import (
 	"math"
 	"testing"
 
-	schubfach "github.com/lattice-substrate/jcs-schubfach"
+	"github.com/lattice-substrate/jcs-schubfach/jcsfloat"
 )
 
 func BenchmarkFormatDouble(b *testing.B) {
@@ -28,7 +28,7 @@ func BenchmarkFormatDouble(b *testing.B) {
 		b.Run(tc.name, func(b *testing.B) {
 			b.ReportAllocs()
 			for i := 0; i < b.N; i++ {
-				if _, err := schubfach.FormatDouble(tc.val); err != nil {
+				if _, err := jcsfloat.FormatDouble(tc.val); err != nil {
 					b.Fatal(err)
 				}
 			}

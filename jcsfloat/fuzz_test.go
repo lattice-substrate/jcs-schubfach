@@ -1,4 +1,4 @@
-package schubfach_test
+package jcsfloat_test
 
 import (
 	"encoding/binary"
@@ -6,10 +6,10 @@ import (
 	"strconv"
 	"testing"
 
-	schubfach "github.com/lattice-substrate/jcs-schubfach"
+	"github.com/lattice-substrate/jcs-schubfach/jcsfloat"
 )
 
-// FuzzFormatDoubleRoundTrip: uint64 bits → format → parse → verify round-trip.
+// FuzzFormatDoubleRoundTrip: uint64 bits -> format -> parse -> verify round-trip.
 func FuzzFormatDoubleRoundTrip(f *testing.F) {
 	seeds := []uint64{
 		0x0000000000000000, // +0
@@ -35,14 +35,14 @@ func FuzzFormatDoubleRoundTrip(f *testing.F) {
 
 		if math.IsNaN(fval) || math.IsInf(fval, 0) {
 			// These should error
-			_, err := schubfach.FormatDouble(fval)
+			_, err := jcsfloat.FormatDouble(fval)
 			if err == nil {
 				t.Fatal("expected error for non-finite value")
 			}
 			return
 		}
 
-		s, err := schubfach.FormatDouble(fval)
+		s, err := jcsfloat.FormatDouble(fval)
 		if err != nil {
 			t.Fatalf("FormatDouble(bits=%016x): %v", bits, err)
 		}
@@ -56,12 +56,12 @@ func FuzzFormatDoubleRoundTrip(f *testing.F) {
 		// Bit-level identity is not expected for -0.
 		if fval == 0 {
 			if parsed != 0 {
-				t.Fatalf("zero round-trip failed: bits=%016x → %q → %v", bits, s, parsed)
+				t.Fatalf("zero round-trip failed: bits=%016x -> %q -> %v", bits, s, parsed)
 			}
 			return
 		}
 		if math.Float64bits(parsed) != math.Float64bits(fval) {
-			t.Fatalf("round-trip failed: bits=%016x → %q → bits=%016x",
+			t.Fatalf("round-trip failed: bits=%016x -> %q -> bits=%016x",
 				bits, s, math.Float64bits(parsed))
 		}
 	})

@@ -1,0 +1,207 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+jobs:
+  pre_release:
+    name: Pre-Release Validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: '1.24.13'
+      - name: go vet
+        run: go vet ./...
+      - name: unit tests
+        run: go test ./... -count=1 -timeout=20m
+      - name: race tests
+        run: go test ./... -race -count=1 -timeout=25m
+      - name: conformance
+        run: go test ./conformance -count=1 -timeout=10m -v
+      - name: official ES6 100M checksum gate
+        env:
+          JCS_OFFICIAL_ES6_ENABLE_100M: "1"
+        run: go test ./conformance -run TestOfficialES6CorpusChecksums100M -count=1 -timeout=6h -v
+      - name: resolve evidence source metadata
+        id: evidence-source
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence_path="offline/runs/releases/${GITHUB_REF_NAME}/x86_64/offline-evidence.json"
+          if [[ ! -f "${evidence_path}" ]]; then
+            echo "::error::missing offline evidence: ${evidence_path}"
+            exit 1
+          fi
+
+          commit="$(jq -r '.source_git_commit // empty' "${evidence_path}")"
+          tag="$(jq -r '.source_git_tag // empty' "${evidence_path}")"
+          if [[ -z "${commit}" || -z "${tag}" ]]; then
+            echo "::error::offline evidence missing source_git_commit/source_git_tag"
+            exit 1
+          fi
+          if [[ ! "${commit}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::offline evidence source_git_commit is not a full SHA: ${commit}"
+            exit 1
+          fi
+          if [[ "${tag}" != "${GITHUB_REF_NAME}" ]]; then
+            echo "::error::offline evidence source_git_tag ${tag} does not match release tag ${GITHUB_REF_NAME}"
+            exit 1
+          fi
+          if ! git cat-file -e "${commit}^{commit}" 2>/dev/null; then
+            git fetch --no-tags --depth=1 origin "${commit}"
+          fi
+
+          echo "commit=${commit}" >> "$GITHUB_OUTPUT"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+      - name: build release control binary for offline evidence gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .tmp/release-offline-control
+          source_tree=".tmp/release-offline-source"
+          control_binary="${GITHUB_WORKSPACE}/.tmp/release-offline-control/jcs-schubfach"
+          rm -rf "${source_tree}"
+
+          cleanup() {
+            git worktree remove --force "${source_tree}" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+
+          git worktree add --detach "${source_tree}" "${{ steps.evidence-source.outputs.commit }}"
+          (
+            cd "${source_tree}"
+            CGO_ENABLED=0 go build -trimpath -buildvcs=false \
+              -ldflags="-s -w -buildid= -X main.version=${GITHUB_REF_NAME}" \
+              -o "${control_binary}" ./cmd/jcs-schubfach
+          )
+      - name: offline evidence gate x86_64
+        env:
+          JCS_OFFLINE_EVIDENCE: ${{ github.workspace }}/offline/runs/releases/${{ github.ref_name }}/x86_64/offline-evidence.json
+          JCS_OFFLINE_BUNDLE: ${{ github.workspace }}/offline/runs/releases/${{ github.ref_name }}/x86_64/offline-bundle.tgz
+          JCS_OFFLINE_CONTROL_BINARY: ${{ github.workspace }}/.tmp/release-offline-control/jcs-schubfach
+          JCS_OFFLINE_MATRIX: ${{ github.workspace }}/offline/matrix.yaml
+          JCS_OFFLINE_PROFILE: ${{ github.workspace }}/offline/profiles/maximal.yaml
+          JCS_OFFLINE_EXPECTED_GIT_COMMIT: ${{ steps.evidence-source.outputs.commit }}
+          JCS_OFFLINE_EXPECTED_GIT_TAG: ${{ steps.evidence-source.outputs.tag }}
+        run: go test ./offline/conformance -run TestOfflineReplayEvidenceReleaseGate -count=1 -v
+      - name: offline evidence gate arm64
+        env:
+          JCS_OFFLINE_EVIDENCE: ${{ github.workspace }}/offline/runs/releases/${{ github.ref_name }}/arm64/offline-evidence.json
+          JCS_OFFLINE_BUNDLE: ${{ github.workspace }}/offline/runs/releases/${{ github.ref_name }}/arm64/offline-bundle.tgz
+          JCS_OFFLINE_CONTROL_BINARY: ${{ github.workspace }}/.tmp/release-offline-control/jcs-schubfach
+          JCS_OFFLINE_MATRIX: ${{ github.workspace }}/offline/matrix.arm64.yaml
+          JCS_OFFLINE_PROFILE: ${{ github.workspace }}/offline/profiles/maximal.arm64.yaml
+          JCS_OFFLINE_EXPECTED_GIT_COMMIT: ${{ steps.evidence-source.outputs.commit }}
+          JCS_OFFLINE_EXPECTED_GIT_TAG: ${{ steps.evidence-source.outputs.tag }}
+        run: go test ./offline/conformance -run TestOfflineReplayEvidenceReleaseGate -count=1 -v
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@55c2c1448f86e01eaae002a5a3a9624417608d84 # v6.5.2
+        with:
+          version: v1.64.8
+          args: --config=golangci.yml
+      - name: fuzz jcstoken
+        run: go test ./jcstoken -run=^$ -fuzz=FuzzParseCanonicalRoundTrip -fuzztime=30s
+      - name: fuzz jcsfloat
+        run: go test ./jcsfloat -run=^$ -fuzz=FuzzFormatDoubleRoundTrip -fuzztime=30s
+
+  build:
+    name: Build Artifacts (${{ matrix.os }})
+    needs: pre_release
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: '1.24.13'
+      - name: Build binary
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          bin="jcs-schubfach"
+          CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags="-s -w -buildid= -X main.version=${GITHUB_REF_NAME}" -o "dist/${bin}" ./cmd/jcs-schubfach
+          cp LICENSE dist/
+          cp NOTICE dist/
+          cp README.md dist/
+          cp CHANGELOG.md dist/
+          bundle="jcs-schubfach-linux-x86_64.tar.gz"
+          bundle_root="${bundle%.tar.gz}"
+          bundle_dir=".tmp/release-bundle/${bundle_root}"
+          mkdir -p "${bundle_dir}"
+          cp "dist/${bin}" "${bundle_dir}/"
+          cp LICENSE NOTICE README.md CHANGELOG.md "${bundle_dir}/"
+          tar --sort=name --owner=0 --group=0 --numeric-owner --mtime='UTC 1970-01-01' \
+            -C .tmp/release-bundle -czf "dist/${bundle}" "${bundle_root}"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: jcs-schubfach-linux
+          path: dist/*
+
+  checksums:
+    name: Generate Checksums
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          path: dist
+      - name: Create SHA256SUMS
+        shell: bash
+        run: |
+          set -euo pipefail
+          find dist -type f \( -name 'jcs-schubfach' -o -name 'jcs-schubfach-linux-*.tar.gz' \) -print0 | sort -z | xargs -0 sha256sum > dist/SHA256SUMS
+          cat dist/SHA256SUMS
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: checksums
+          path: dist/SHA256SUMS
+
+  attest:
+    name: Attest Build Provenance
+    needs: build
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        artifact: [jcs-schubfach-linux]
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist
+      - name: Attest binary
+        uses: actions/attest-build-provenance@96b4a1ef7235a096b17240c259729fdd70c83d45 # v2
+        with:
+          subject-path: dist/jcs-schubfach*
+
+  publish:
+    name: Publish GitHub Release
+    needs: [checksums, attest]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          path: release
+      - uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2
+        with:
+          files: release/**/*
+          fail_on_unmatched_files: true
+          generate_release_notes: true
+          prerelease: ${{ contains(github.ref_name, '-rc') }}
